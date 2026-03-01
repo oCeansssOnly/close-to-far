@@ -8,26 +8,68 @@ import { toast } from "sonner";
 const Index = () => {
   const [clients, setClients] = useState<ClientAddress[]>([]);
   const [copied, setCopied] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
 
-  const handleParse = useCallback((text: string) => {
+  const getUserLocation = useCallback((): Promise<{ lat: number; lng: number }> => {
+    return new Promise((resolve, reject) => {
+      if (userLocation) {
+        resolve(userLocation);
+        return;
+      }
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocalização não suportada"));
+        return;
+      }
+      setLoadingLocation(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserLocation(loc);
+          setLoadingLocation(false);
+          resolve(loc);
+        },
+        (err) => {
+          setLoadingLocation(false);
+          reject(err);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }, [userLocation]);
+
+  const handleParse = useCallback(async (text: string) => {
     const parsed = parseAddresses(text);
     if (parsed.length === 0) {
       toast.error("Nenhum endereço encontrado. Verifique o formato.");
       return;
     }
-    const optimized = optimizeRoute(parsed);
-    setClients(optimized);
-    toast.success(`${optimized.length} endereços encontrados e rota otimizada!`);
-  }, []);
+    try {
+      const loc = await getUserLocation();
+      const optimized = optimizeRoute(parsed, loc.lat, loc.lng);
+      setClients(optimized);
+      toast.success(`${optimized.length} endereços otimizados a partir da sua localização!`);
+    } catch {
+      const optimized = optimizeRoute(parsed);
+      setClients(optimized);
+      toast.success(`${optimized.length} endereços encontrados! (sem localização, usando primeiro endereço como base)`);
+    }
+  }, [getUserLocation]);
 
   const updateClient = useCallback((updated: ClientAddress) => {
     setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
   }, []);
 
-  const reoptimize = useCallback(() => {
-    setClients(prev => optimizeRoute([...prev]));
-    toast.success("Rota reotimizada!");
-  }, []);
+  const reoptimize = useCallback(async () => {
+    try {
+      const loc = await getUserLocation();
+      setClients(prev => optimizeRoute([...prev], loc.lat, loc.lng));
+      toast.success("Rota reotimizada a partir da sua localização!");
+    } catch {
+      setClients(prev => optimizeRoute([...prev]));
+      toast.success("Rota reotimizada!");
+    }
+  }, [getUserLocation]);
 
   const openFullRoute = () => {
     const url = generateGoogleMapsUrl(clients);
@@ -141,10 +183,15 @@ const Index = () => {
                 + Adicionar mais endereços
               </summary>
               <div className="px-4 pb-4">
-                <AddressInput onParse={(text) => {
+                <AddressInput onParse={async (text) => {
                   const parsed = parseAddresses(text);
                   const all = [...clients, ...parsed];
-                  setClients(optimizeRoute(all));
+                  try {
+                    const loc = await getUserLocation();
+                    setClients(optimizeRoute(all, loc.lat, loc.lng));
+                  } catch {
+                    setClients(optimizeRoute(all));
+                  }
                   toast.success(`${parsed.length} endereços adicionados!`);
                 }} />
               </div>
