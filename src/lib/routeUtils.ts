@@ -9,51 +9,69 @@ export interface ClientAddress {
   lat: number;
   lng: number;
   paymentMethod: 'online' | 'dinheiro' | 'pix' | 'cartao';
-  changeAmount?: string; // troco
+  changeAmount?: string;
+  orderCode?: string; // código localizador do pedido
+  confirmationCode?: string; // código de confirmação do motoboy
+  confirmed?: boolean;
+}
+
+export interface Motoboy {
+  id: string;
+  name: string;
+  clients: ClientAddress[];
+}
+
+export function parseOneAddress(text: string, index: number = 0): ClientAddress | null {
+  const block = text.trim();
+  if (!block) return null;
+
+  const nameMatch = block.match(/Endereço\s+(?:de\s+)?(\w+)/i);
+  const name = nameMatch ? nameMatch[1] : `Cliente ${index + 1}`;
+
+  const paymentMatch = block.match(/Pagamento\s+([\w\s]+?)(?:\s*\(|:)/i);
+  const payment = paymentMatch ? paymentMatch[1].trim() : 'Online';
+
+  const phoneMatch = block.match(/\(([^)]*\d[^)]*)\)/);
+  const phone = phoneMatch ? phoneMatch[1].replace(/[^\d\s()-]/g, '').trim() : '';
+
+  const addressMatch = block.match(/:\s*(.+?)(?:\s*https|$)/s);
+  const fullAddr = addressMatch ? addressMatch[1].trim() : '';
+
+  const parts = fullAddr.split(' - ').map(p => p.trim());
+  const address = parts.slice(0, 2).join(' - ');
+  const city = parts.find(p => p.includes('/')) || '';
+  const refParts = parts.filter(p => !p.includes('/') && parts.indexOf(p) > 1);
+  const reference = refParts.join(' - ').replace(/CEP\s*\d{5}-\d{3}\s*-?\s*/g, '').trim();
+
+  const coordsMatch = block.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  const lat = coordsMatch ? parseFloat(coordsMatch[1]) : 0;
+  const lng = coordsMatch ? parseFloat(coordsMatch[2]) : 0;
+
+  if (lat === 0 && lng === 0 && !fullAddr) return null;
+
+  const isOnline = /online/i.test(payment);
+
+  return {
+    id: `client-${index}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    name,
+    payment,
+    phone,
+    address,
+    city,
+    reference,
+    lat,
+    lng,
+    paymentMethod: isOnline ? 'online' : 'dinheiro',
+    changeAmount: '',
+    orderCode: '',
+    confirmationCode: '',
+    confirmed: false,
+  };
 }
 
 export function parseAddresses(text: string): ClientAddress[] {
   const blocks = text.split(/(?=Endereço\s)/i).filter(b => b.trim());
-  return blocks.map((block, i) => {
-    const nameMatch = block.match(/Endereço\s+(?:de\s+)?(\w+)/i);
-    const name = nameMatch ? nameMatch[1] : `Cliente ${i + 1}`;
-
-    const paymentMatch = block.match(/Pagamento\s+([\w\s]+?)(?:\s*\(|:)/i);
-    const payment = paymentMatch ? paymentMatch[1].trim() : 'Online';
-
-    const phoneMatch = block.match(/\(([^)]*\d[^)]*)\)/);
-    const phone = phoneMatch ? phoneMatch[1].replace(/[^\d\s()-]/g, '').trim() : '';
-
-    const addressMatch = block.match(/:\s*(.+?)(?:\s*https|$)/s);
-    const fullAddr = addressMatch ? addressMatch[1].trim() : '';
-
-    // Parse address parts
-    const parts = fullAddr.split(' - ').map(p => p.trim());
-    const address = parts.slice(0, 2).join(' - ');
-    const city = parts.find(p => p.includes('/')) || '';
-    const refParts = parts.filter(p => !p.includes('/') && parts.indexOf(p) > 1);
-    const reference = refParts.join(' - ').replace(/CEP\s*\d{5}-\d{3}\s*-?\s*/g, '').trim();
-
-    const coordsMatch = block.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-    const lat = coordsMatch ? parseFloat(coordsMatch[1]) : 0;
-    const lng = coordsMatch ? parseFloat(coordsMatch[2]) : 0;
-
-    const isOnline = /online/i.test(payment);
-
-    return {
-      id: `client-${i}-${Date.now()}`,
-      name,
-      payment,
-      phone,
-      address,
-      city,
-      reference,
-      lat,
-      lng,
-      paymentMethod: isOnline ? 'online' : 'dinheiro',
-      changeAmount: '',
-    };
-  });
+  return blocks.map((block, i) => parseOneAddress(block, i)).filter(Boolean) as ClientAddress[];
 }
 
 // Haversine distance in km
@@ -75,13 +93,6 @@ export function optimizeRoute(clients: ClientAddress[], startLat?: number, start
 
   let currentLat = startLat ?? remaining[0].lat;
   let currentLng = startLng ?? remaining[0].lng;
-
-  // If we have a start position different from clients, find nearest first
-  if (startLat !== undefined && startLng !== undefined) {
-    // nearest neighbor from start
-  } else {
-    // Use first client's position as start reference, find nearest to it
-  }
 
   while (remaining.length > 0) {
     let nearestIdx = 0;
@@ -127,6 +138,7 @@ export function generateRouteDescription(clients: ClientAddress[]): string {
     if (c.paymentMethod === 'dinheiro' && c.changeAmount) {
       desc += ` (Troco p/ R$${c.changeAmount})`;
     }
+    if (c.orderCode) desc += ` | Pedido: ${c.orderCode}`;
     return desc;
   }).join('\n');
 }
@@ -139,4 +151,8 @@ export function getPaymentLabel(method: string): string {
     cartao: '💳 Cartão na entrega',
   };
   return labels[method] || method;
+}
+
+export function generateIfoodConfirmationUrl(orderCode: string): string {
+  return `https://confirmacao-entrega-propria.ifood.com.br/pedido/${orderCode}/confirmado`;
 }
