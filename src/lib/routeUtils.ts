@@ -104,16 +104,19 @@ export function optimizeRoute(clients: ClientAddress[], startLat?: number, start
   return ordered;
 }
 
-export function generateGoogleMapsUrl(clients: ClientAddress[]): string {
+export function generateGoogleMapsUrl(
+  clients: ClientAddress[],
+  startLat?: number,
+  startLng?: number
+): string {
   if (clients.length === 0) return '';
 
-  const origin = `${clients[0].lat},${clients[0].lng}`;
-  const destination = `${clients[clients.length - 1].lat},${clients[clients.length - 1].lng}`;
-  const waypoints = clients.slice(1, -1).map(c => `${c.lat},${c.lng}`).join('|');
+  const routePoints = [
+    ...(startLat !== undefined && startLng !== undefined ? [`${startLat},${startLng}`] : []),
+    ...clients.map(c => `${c.lat},${c.lng}`),
+  ];
 
-  let url = `https://www.google.com/maps/dir/${clients.map(c => `${c.lat},${c.lng}`).join('/')}`;
-
-  return url;
+  return `https://www.google.com/maps/dir/${routePoints.join('/')}`;
 }
 
 export function generateRouteDescription(clients: ClientAddress[]): string {

@@ -71,13 +71,27 @@ const Index = () => {
     }
   }, [getUserLocation]);
 
-  const openFullRoute = () => {
-    const url = generateGoogleMapsUrl(clients);
-    window.open(url, '_blank');
+  const openFullRoute = async () => {
+    try {
+      const loc = await getUserLocation();
+      const url = generateGoogleMapsUrl(clients, loc.lat, loc.lng);
+      window.open(url, '_blank');
+    } catch {
+      const url = generateGoogleMapsUrl(clients, userLocation?.lat, userLocation?.lng);
+      window.open(url, '_blank');
+    }
   };
 
-  const copyRouteInfo = () => {
-    const mapsUrl = generateGoogleMapsUrl(clients);
+  const copyRouteInfo = async () => {
+    let mapsUrl = generateGoogleMapsUrl(clients, userLocation?.lat, userLocation?.lng);
+
+    try {
+      const loc = await getUserLocation();
+      mapsUrl = generateGoogleMapsUrl(clients, loc.lat, loc.lng);
+    } catch {
+      // mantém melhor URL disponível
+    }
+
     const description = generateRouteDescription(clients);
     const fullText = `ROTA DE ENTREGAS (${clients.length} paradas)\n${'─'.repeat(40)}\n${description}\n${'─'.repeat(40)}\n🗺️ Rota no Maps: ${mapsUrl}`;
     navigator.clipboard.writeText(fullText);
